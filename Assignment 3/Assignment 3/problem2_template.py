@@ -7,6 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+from sklearn.metrics import precision_recall_curve, PrecisionRecallDisplay
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
 
 transform = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize(mean=(0.5, 0.5, 0.5),
@@ -32,11 +35,17 @@ trainset_aug = torchvision.datasets.CIFAR10(root='./data',
                                   download=True,
                                   transform=transform_train_aug)
 
-# Here we expand our trainingset with our horizontaly flipped dataset
+# Here we expand our training set with our horizontaly flipped dataset
 trainset = torch.utils.data.ConcatDataset((trainset, trainset_aug))
+
+trainset, validationset = train_test_split(trainset, test_size=0.1) # Splitting the training set into a training and validation set
 
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
                                           shuffle=True, **kwargs)
+
+validationloader = torch.utils.data.DataLoader(validationset, batch_size=batch_size,
+                                          shuffle=True, **kwargs)
+
 testset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                        download=True, transform=transform)
 testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
@@ -51,32 +60,55 @@ class Net(nn.Module):
 
         # CNN
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.batchnorm1 = nn.BatchNorm2d(num_features=32) # We added batch normalization
+        self.dropout1 = nn.Dropout(p=0.1) # We added dropout
         
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.batchnorm2 = nn.BatchNorm2d(num_features=64)
+        self.dropout2 = nn.Dropout(p=0.1)
 
         self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.batchnorm3 = nn.BatchNorm2d(num_features=128)
+        self.dropout3 = nn.Dropout(p=0.1)
 
-        self.conv4 = nn.Conv2d(in_channels=128, out_channels=16, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv2d(in_channels=128, out_channels=32, kernel_size=3, padding=1)
+        self.batchnorm4 = nn.BatchNorm2d(num_features=32)
 
         # DNN
-        self.fc1 = nn.Linear(in_features=16*8*8, out_features=120)
+        self.fc1 = nn.Linear(in_features=32*8*8, out_features=120)
 
         self.fc2 = nn.Linear(in_features=120, out_features=84)
 
         self.fc3 = nn.Linear(in_features=84, out_features=10)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
+
+        # CNN:
+        x = F.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = self.batchnorm1(x)
+        # x = self.dropout1(x)
+
+        x = F.relu(self.conv2(x))
+        x = self.pool2(x)
+        x = self.batchnorm2(x)
+        x = self.dropout2(x)
+
         x = F.relu(self.conv3(x))
+        # x = self.pool3(x)
+        x = self.batchnorm3(x)
+        x = self.dropout3(x)
+
         x = F.relu(self.conv4(x))
-        # x = F.relu(self.conv3(x))
-        # x = F.relu(self.conv4(x))
+        x = self.batchnorm4(x)
+
         # print(x.size())
-        x = x.view(-1, 16 * 8 * 8)
+
+        # DNN:
+        x = x.view(-1, 32 * 8 * 8)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
@@ -112,7 +144,32 @@ if __name__ == '__main__':
             running_loss += loss.item()
         print('[%d] loss: %.3f' % (epoch + 1, running_loss / i))
 
+        val_correct = 0
+        val_total = 0
+
+        with torch.no_grad():
+            for data in validationloader:
+                images, labels = data[0].to(device), data[1].to(device)
+                # images, labels = data
+                outputs = net(images)
+                _, predicted = torch.max(outputs.data, 1)
+                val_total += labels.size(0)
+                val_correct += (predicted == labels).sum().item()
+        
+        print('Valdiation accuracy of the network on the validation images: %d %%' % (100 * val_correct / val_total))
+
     print('Finished Training')
+
+    # KOK ---
+    planes = []
+    planes_bin = []
+    planes_predicted = []
+    planes_predicted_bin = []
+    plane = 0
+
+    labels_list = []
+    predicted_list = []
+    # ---
 
     correct = 0
     total = 0
@@ -124,5 +181,33 @@ if __name__ == '__main__':
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
+
+
+            # Kok ---
+            labels_cpu = labels.cpu()
+            predicted_cpu = predicted.cpu()
+
+            labels_numpy = labels_cpu.numpy()
+            predicted_numpy = predicted_cpu.numpy()
+
+            for i in range(len(labels_numpy)):
+                labels_list.append(labels_numpy[i])
+                predicted_list.append(predicted_numpy[i])
+                if (labels_numpy[i] == plane):
+                    planes_predicted.append(predicted_numpy[i])
+                    planes.append(labels_numpy[i])
+                    planes_bin.append(1)
+                    if (labels_numpy[i] == predicted_numpy[i]):
+                        planes_predicted_bin.append(1)
+                    else:
+                        planes_predicted_bin.append(0)
+            
+            # ---
+
+    precision, recall, thresholds = precision_recall_curve(labels_list, predicted_list, pos_label=8)
+
+    disp = PrecisionRecallDisplay(precision, recall)
+    disp.plot()
+    plt.show()
 
     print('Accuracy of the network on the 10000 test images: %d %%' % (100 * correct / total))
