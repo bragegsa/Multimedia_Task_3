@@ -2,15 +2,19 @@
 
 import numpy as np
 
-QUANTIZATION_LEVELS = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+RANDOM_INPUT = np.round(np.random.rand(10) * 10, 1)
+DELTA = int('00001111', 2)
+DELTA = 1
+RANGE = 10
 
-def unform_quantizer(input_value, quantization_levels):
+def unform_quantizer(input_values, delta):
     """Quanitzing input values uniformely"""
-    
-    value_of_nearest_level = quantization_levels[np.argmin(np.abs(input_value-quantization_levels))]
+
+    # value_of_nearest_level = quantization_levels[np.argmin(np.abs(input_value-quantization_levels))]
+
+    value_of_nearest_level = delta * np.floor(input_values/delta + 1/2)
 
     return value_of_nearest_level
 
-INPUT_VALUE = 4.3
 
-print(INPUT_VALUE, "is quantized to", unform_quantizer(input_value=INPUT_VALUE, quantization_levels=QUANTIZATION_LEVELS))
+print(RANDOM_INPUT, "is quantized to", unform_quantizer(input_values=RANDOM_INPUT, delta=DELTA))
