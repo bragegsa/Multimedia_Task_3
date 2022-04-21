@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-from sklearn.metrics import precision_recall_curve, PrecisionRecallDisplay
+from sklearn.metrics import precision_recall_curve, auc
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
@@ -16,7 +16,8 @@ transform = transforms.Compose([transforms.ToTensor(),
                                                      std=(0.5, 0.5, 0.5))])
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 kwargs = {} if device=='cpu' else {'num_workers': 1, 'pin_memory': True}
-batch_size=4
+
+batch_size = 4
 
 mean = (0.5, 0.5, 0.5)
 std = (.25, .25, .25)
@@ -48,6 +49,7 @@ validationloader = torch.utils.data.DataLoader(validationset, batch_size=batch_s
 
 testset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                        download=True, transform=transform)
+                                       
 testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
                                          shuffle=False, **kwargs)
 
@@ -160,19 +162,12 @@ if __name__ == '__main__':
 
     print('Finished Training')
 
-    # KOK ---
-    planes = []
-    planes_bin = []
-    planes_predicted = []
-    planes_predicted_bin = []
-    plane = 0
-
-    labels_list = []
-    predicted_list = []
-    # ---
+    labels_total = []
+    predicted_total = []
 
     correct = 0
     total = 0
+
     with torch.no_grad():
         for data in testloader:
             images, labels = data[0].to(device), data[1].to(device)
@@ -182,32 +177,24 @@ if __name__ == '__main__':
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
+            np_labels = labels.cpu().numpy()
+            np_predicted = predicted.cpu().numpy()
 
-            # Kok ---
-            labels_cpu = labels.cpu()
-            predicted_cpu = predicted.cpu()
-
-            labels_numpy = labels_cpu.numpy()
-            predicted_numpy = predicted_cpu.numpy()
-
-            for i in range(len(labels_numpy)):
-                labels_list.append(labels_numpy[i])
-                predicted_list.append(predicted_numpy[i])
-                if (labels_numpy[i] == plane):
-                    planes_predicted.append(predicted_numpy[i])
-                    planes.append(labels_numpy[i])
-                    planes_bin.append(1)
-                    if (labels_numpy[i] == predicted_numpy[i]):
-                        planes_predicted_bin.append(1)
-                    else:
-                        planes_predicted_bin.append(0)
-            
-            # ---
-
-    precision, recall, thresholds = precision_recall_curve(labels_list, predicted_list, pos_label=8)
-
-    disp = PrecisionRecallDisplay(precision, recall)
-    disp.plot()
-    plt.show()
-
+            labels_total.extend(np_labels)
+            predicted_total.extend(np_predicted)
+        
     print('Accuracy of the network on the 10000 test images: %d %%' % (100 * correct / total))
+
+    plt.figure(figsize=(9, 6))
+
+    for i in range(len(classes)):
+        precision, recall, thresholds = precision_recall_curve(labels_total, predicted_total, pos_label=i)
+        auprc = round(auc(recall, precision), ndigits=2)
+        plt.plot(recall, precision, label=f'{classes[i]} with an AUPRC of {auprc}')
+    
+    plt.legend(loc='upper right')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision Recall curve')
+    plt.grid()
+    plt.show()
